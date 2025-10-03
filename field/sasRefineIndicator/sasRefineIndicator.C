@@ -37,33 +37,20 @@ namespace functionObjects
 defineTypeNameAndDebug(sasRefineIndicator, 0);
 addToRunTimeSelectionTable(functionObject, sasRefineIndicator, dictionary);
 
-template<>
-const char* NamedEnum<sasRefineIndicator::focusRegion, 3>::names[] =
+const NamedEnum<sasRefineIndicator::focusRegion, 3>
+sasRefineIndicator::focusRegionNames_
 {
     "periphery",
     "core",
     "combined"
 };
 
-const NamedEnum
-<
-    sasRefineIndicator::focusRegion,
-    3
-> sasRefineIndicator::focusRegionNames_;
-
-template<>
-const char* NamedEnum<sasRefineIndicator::transferFunction, 2>::names[] =
+const NamedEnum<sasRefineIndicator::transferFunction, 2>
+sasRefineIndicator::transferFunctionNames_
 {
     "constant",
     "oddScaler"
 };
-
-const NamedEnum
-<
-    sasRefineIndicator::transferFunction,
-    2
-> sasRefineIndicator::transferFunctionNames_;
-
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
 
