@@ -31,38 +31,93 @@ Description
     Function object for generating a refinement indicator field for dynamic mesh
     refinement
 
-    Indicator derived from the von Kármán length scale (Lvk) in the kOmegaSSTSAS
-    turbulence model formulation.
+    Refinement indicator based on the von Kármán length scale (Lvk) and is
+    designed to serve as an adaptive refinement criterion for a Scale Adaptive
+    (SA) turbulente model.
 
-    Options are provided to enphasise different regions of the flow:
+    The porpose is to adaptively refine mesh in regions where vortices are being
+    detected by a scale-resolving simulation, refining in vortices-associated
+    regions and coarsening outside them.
 
-    1. focusRegion == core
-        - Procecess Lvk in order to obtain the refinement field that leads to
-        refine where the grid filter is active, ideally in the core of detected
-        eddies.
-        - Transfer function to mark cells: using a constant value function or an
-        odd, monotonic, sign-preserving function that behaves linear near 0
-        (slope 1) and approaches a scaled line (slope 1+coreWeight) for large
-        ∣d|, it uses a Gaussian factor to modulate the slope (markWithConstant
-        or markWithOddScaler)
+    Options are provided to enphasise different regions of the flow/vortices:
 
-    2. FocusRegion == periphery
-        - Procecess nLvk in order to obtain the refinement field that leads to
-        refine in the periphery of detected eddies.
-        - Transfer function to mark cells: is gaussian-like function centered in
-        nLvk=1 minus a quadratic term (markPeripheryGaussSink)
+    1. focusRegion == "core"
 
-    3. focusRegion == combined
-        - Combine the two above
+        Focuses refinement where the grid filter is most active, ideally in the
+        core of detected eddies.
 
-    where:
-        - $L_{vk} = max(c_1, c_1)$ where:
-        - $c_1$ is the actual length scale;
-        - $c_2$ is the high wave number number damper linked to the grid size.
-        - $nLvk = Lvk / c2$
+        Available transfer functions:
 
-    Designed for use with dynamicRefineFvMesh to adapt the mesh around turbulent
-    structures.
+        a) markCoreConstant:
+        apply constant value to all cells where d = c2 - c1 > 0
+        \f[
+            f(d) = \text{const}
+        \f]
+
+        b) markCoreOddScaler:
+        apply an odd, monotonic, sign-preserving function, symmetric around
+        origin, normalised by its maximum value:
+        \f[
+          f(d) = d \cdot \left( c - \exp\left( -\frac{d^2}{2 \sigma^2} \right) \right), \quad c \geq 1.0
+        \f]
+        Notes:
+        - As \f$ |d| \to \infty \f$, the exponential vanishes, and
+        \f$ f(d) \sim c \cdot d \f$
+        - If \f$ c = 1.0 \f$, function behaves cubically near 0 — useful
+        for smoothly marking the interface region
+        - If \f$ c > 1.0 \f$, the function becomes more linear near 0
+        - \f$ \sigma \in [0.0, 1.0] \f$ controls the width of the transition region
+
+        c) markCoreGaussSink:
+        gaussian-like function peaking where nLvk = Lvk / c2 = 1, and decays for
+        increasing values of nLvk:
+        \f[
+            f(nLvk) = w_1 \cdot \exp\left( -\frac{1}{2} \left( \frac{nLvk - 1}{\sigma} \right)^2 \right) + w_2 \cdot (nLvk - 1)^2
+        \f]
+        Parameters:
+        - \f$ w_1, w_2 \geq 0 \f$
+        - \f$ \sigma \f$ controls the width of the peak
+        - \f$ w_1 \f$ controls peak height
+        - \f$ w_2 \f$ controls decay rate outside the focus region
+
+2. FocusRegion == "periphery"
+
+        Focuses refinement in the periphery of vortex structures rather than
+        their core.
+
+        Available transfer functions:
+
+        d) markPeripheryGaussSink:
+        Gaussian-like function peaking at a user-defined reference value
+        of Lvk (e.g., a free-stream value). Same as 'c' but different nLvk
+        definition:
+        \f[
+            f(nLvk) = w_1 \cdot \exp\left( -\frac{1}{2} \left( \frac{nLvk - 1}{\sigma} \right)^2 \right) - w_2 \cdot (nLvk - 1)^2
+        \f]
+
+    Where:
+    - \f$ L_{vk} = \max(c_1, c_2) \f$
+    - \f$ c_1 \f$ is the physical turbulence length scale
+    - \f$ c_2 \f$ is the grid-related high wave number damper (linked to grid size)
+
+Usage
+    Example of function object specification:
+    \verbatim
+    sasRefineIndicator1
+    {
+        libs            ( "libmyfieldFunctionObjects.so" );
+        type            sasRefineIndicator;
+        result          refineIndicatorField;
+        executeControl  timeStep;
+        executeInterval 1;
+        writeControl    writeTime;
+        executeAtStart  false;
+        regionName      refine_cells;
+        focusRegion     core;
+        transferFunction oddScaler;
+        sigma           1.0;
+    }
+    \endverbatim
 
 See also
     Foam::functionObjects::fieldExpression
@@ -100,33 +155,30 @@ public:
     enum focusRegion
     {
         core,
-        periphery,
-        combined
+        periphery
     };
-    static const NamedEnum<focusRegion, 3> focusRegionNames_;
+    static const NamedEnum<focusRegion, 2> focusRegionNames_;
 
     enum transferFunction
     {
+        basic,
         constant,
-        oddScaler
+        oddScaler,
+        gaussSink
     };
-    static const NamedEnum<transferFunction, 2> transferFunctionNames_;
+    static const NamedEnum<transferFunction, 4> transferFunctionNames_;
 
 protected:
 
     // ---- User options
     focusRegion      focusRegion_;
-    scalar           sigma_;
-    scalar           coreWeight_;
-    scalar           peripheryWeight1_;
-    scalar           peripheryWeight2_;
     transferFunction transferFunction_;
+    scalar           sigma_;
+    scalar           weight1_;
+    scalar           weight2_;
+    scalar           LvkRef_;
     word             resultName_;
     wordList         requiredFields_;
-
-    // ---- Region definition 
-    // TODO: address 'momentumError' procedure beacause isn't working
-    word regionName_;
 
     // ---- Created field names (scoped)
     word meshFieldName_;   // field held on the main mesh
@@ -134,12 +186,19 @@ protected:
 
     // ---- Helpers
 
+    //- Transform field without modification
+    tmp<volScalarField::Internal> markCoreBasic
+    (
+        const volScalarField::Internal& c1,
+        const volScalarField::Internal& c2
+    ) const;
+
     //- Transform field via constant value
     tmp<volScalarField::Internal> markCoreConstant
     (
         const volScalarField::Internal& c1,
         const volScalarField::Internal& c2,
-        const scalar coreWeight
+        const scalar weight1
     ) const;
 
     //- Transform field via gaussian function
@@ -147,17 +206,26 @@ protected:
     (
         const volScalarField::Internal& c1,
         const volScalarField::Internal& c2,
-        const scalar coreWeight,
+        const scalar weight1,
         const scalar sigma
     ) const;
 
     //- Transform field via gaussian function
-    tmp<volScalarField::Internal> markPeripheryGaussSink
+    tmp<volScalarField::Internal> markCoreGaussSink
     (
         const volScalarField::Internal& Lvk,
         const volScalarField::Internal& c2,
-        const scalar peripheryWeight1,
-        const scalar peripheryWeight2,
+        const scalar weight1,
+        const scalar weight2,
+        const scalar sigma
+    ) const;
+
+    tmp<volScalarField::Internal> markPeripheryGaussSink
+    (
+        const volScalarField::Internal& Lvk,
+        const scalar LvkRef,
+        const scalar weight1,
+        const scalar weight2,
         const scalar sigma
     ) const;
 

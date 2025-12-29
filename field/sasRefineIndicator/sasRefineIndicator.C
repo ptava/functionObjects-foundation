@@ -37,19 +37,28 @@ namespace functionObjects
 defineTypeNameAndDebug(sasRefineIndicator, 0);
 addToRunTimeSelectionTable(functionObject, sasRefineIndicator, dictionary);
 
-const NamedEnum<sasRefineIndicator::focusRegion, 3>
+namespace
+{
+const word defaultResultName = "sasRefineIndicator";
+const scalar sigmaDefault = 0.05;
+const scalar weight1Default = 1.0;
+const scalar weight2Default = 1.0;
+}
+
+const NamedEnum<sasRefineIndicator::focusRegion, 2>
 sasRefineIndicator::focusRegionNames_
 {
-    "periphery",
     "core",
-    "combined"
+    "periphery"
 };
 
-const NamedEnum<sasRefineIndicator::transferFunction, 2>
+const NamedEnum<sasRefineIndicator::transferFunction, 4>
 sasRefineIndicator::transferFunctionNames_
 {
+    "basic",
     "constant",
-    "oddScaler"
+    "oddScaler",
+    "gaussSink"
 };
 
 // * * * * * * * * * * * * * * * * Constructors  * * * * * * * * * * * * * * //
@@ -61,9 +70,14 @@ sasRefineIndicator::sasRefineIndicator
     const dictionary& dict
 )
 :
-    fvMeshFunctionObject(name, runTime, dict)
+    fvMeshFunctionObject(name, runTime, dict),
+    focusRegion_(focusRegion::core),
+    transferFunction_(transferFunction::constant),
+    sigma_(sigmaDefault),
+    weight1_(weight1Default),
+    weight2_(weight2Default),
+    resultName_(defaultResultName)
 {
-    // Read configuration first (sets zoneSubSetPtr_, resultName_, etc.)
     read(dict);
 
     auto* fldPtr = new volScalarField
@@ -84,13 +98,15 @@ sasRefineIndicator::sasRefineIndicator
 
 // * * * * * * * * * * * * * * * *  Helpers  * * * * * * * * * * * * * * * * //
 
-tmp<volScalarField::Internal> sasRefineIndicator::markCoreConstant
+tmp<volScalarField::Internal> sasRefineIndicator::markCoreBasic
 (
     const volScalarField::Internal& c1,
-    const volScalarField::Internal& c2,
-    const scalar coreWeight
+    const volScalarField::Internal& c2
 ) const
 {
+    DebugInfo
+        << "sasRefineIndicator::markCoreBasic called" << nl;
+
     tmp<volScalarField::Internal> tG
     (
         new volScalarField::Internal
@@ -110,12 +126,52 @@ tmp<volScalarField::Internal> sasRefineIndicator::markCoreConstant
     );
 
     auto& G = tG.ref();
-    for (const label i : G)
+    forAll(G, i)
     {
         // Calculate the difference between c2 and c1 for each cell
         // and apply constant value to all positive values.
         scalar d = c2[i] - c1[i];
-        G[i] = d > 0.0 ? coreWeight : -GREAT;
+        G[i] = d > 0.0 ? d : -GREAT;
+    }
+
+    return tG;
+}
+
+tmp<volScalarField::Internal> sasRefineIndicator::markCoreConstant
+(
+    const volScalarField::Internal& c1,
+    const volScalarField::Internal& c2,
+    const scalar weight1
+) const
+{
+    DebugInfo
+        << "sasRefineIndicator::markCoreConstant called" << nl;
+
+    tmp<volScalarField::Internal> tG
+    (
+        new volScalarField::Internal
+        (
+            IOobject
+            (
+                "tmpG",
+                mesh_.time().name(),
+                mesh_.thisDb(),
+                IOobject::NO_READ,
+                IOobject::NO_WRITE,
+                false
+            ),
+            mesh_,
+            dimensionedScalar(dimless, -GREAT)
+        )
+    );
+
+    auto& G = tG.ref();
+    forAll(G, i)
+    {
+        // Calculate the difference between c2 and c1 for each cell
+        // and apply constant value to all positive values.
+        scalar d = c2[i] - c1[i];
+        G[i] = d > 0.0 ? weight1 : -GREAT;
     }
 
     return tG;
@@ -125,10 +181,13 @@ tmp<volScalarField::Internal> sasRefineIndicator::markCoreOddScaler
 (
     const volScalarField::Internal& c1,
     const volScalarField::Internal& c2,
-    const scalar coreWeight,
+    const scalar weight1,
     const scalar sigma
 ) const
 {
+    DebugInfo
+        << "sasRefineIndicator::markCoreOddScaler called" << nl;
+
     const scalar invTwoSigma = 0.5/sqr(sigma);
 
     tmp<volScalarField::Internal> tG
@@ -148,28 +207,36 @@ tmp<volScalarField::Internal> sasRefineIndicator::markCoreOddScaler
             dimensionedScalar(dimless, -GREAT)
         )
     );
+    tmp<volScalarField::Internal> td(c2 - c1);
 
     auto& G = tG.ref();
-    for (const label i : G)
+    auto& d = td.ref();
+    
+    forAll(G, i)
     {
         // Calculate the difference between c2 and c1 for each cell
         // and apply an odd, monotonic, sign-preserving function
-        scalar d = c2[i] - c1[i];
-        G[i] = d * (1 + coreWeight * (1 - exp(-invTwoSigma * sqr(d))));
+        const scalar& di = d[i];
+        G[i] = di * (weight1 * exp(-invTwoSigma * sqr(di)));
+        
     }
+    G /= gMax(G);
 
     return tG;
 }
 
-tmp<volScalarField::Internal> sasRefineIndicator::markPeripheryGaussSink
+tmp<volScalarField::Internal> sasRefineIndicator::markCoreGaussSink
 (
     const volScalarField::Internal& Lvk,
     const volScalarField::Internal& c2,
-    const scalar peripheryWeight1,
-    const scalar peripheryWeight2,
+    const scalar weight1,
+    const scalar weight2,
     const scalar sigma
 ) const
 {
+    DebugInfo
+        << "sasRefineIndicator::markCoreGaussSink called" << nl;
+
     const scalar invTwoSigma = 0.5/(sqr(sigma));
 
     tmp<volScalarField::Internal> tG
@@ -189,15 +256,67 @@ tmp<volScalarField::Internal> sasRefineIndicator::markPeripheryGaussSink
             dimensionedScalar(dimless, -GREAT)
         )
     );
+    tmp<volScalarField::Internal> tnLvk = Lvk / 
+        ( c2 + dimensionedScalar(dimLength, VSMALL));
 
     auto& G = tG.ref();
-    for (label i = 0; i < G.size(); ++i)
+    auto& nLvk = tnLvk.ref();
+
+    forAll(G, i)
     {
         // Calculate normalised von Karman length scale for each cell
         // and apply the Gaussian function to get the indicator value.
-        scalar nLvk = Lvk[i] / (c2[i] + VSMALL);
-        G[i] = peripheryWeight1 * exp(-invTwoSigma * sqr(nLvk - 1))
-             - peripheryWeight2 * sqr(nLvk - 1);
+        const scalar& nLvki = nLvk[i];
+        G[i] = weight1 * exp(-invTwoSigma * sqr(nLvki - 1))
+             - weight2 * sqr(nLvki - 1);
+    }
+
+    return tG;
+}
+
+tmp<volScalarField::Internal> sasRefineIndicator::markPeripheryGaussSink
+(
+    const volScalarField::Internal& Lvk,
+    const scalar LvkRef,
+    const scalar weight1,
+    const scalar weight2,
+    const scalar sigma
+) const
+{
+    DebugInfo
+        << "sasRefineIndicator::markPeripheryGaussSink called" << nl;
+
+    const scalar invTwoSigma = 0.5/(sqr(sigma));
+
+    tmp<volScalarField::Internal> tG
+    (
+        new volScalarField::Internal
+        (
+            IOobject
+            (
+                "tmpG",
+                mesh_.time().name(),
+                mesh_.thisDb(),
+                IOobject::NO_READ,
+                IOobject::NO_WRITE,
+                false
+            ),
+            mesh_,
+            dimensionedScalar(dimless, -GREAT)
+        )
+    );
+    tmp<volScalarField::Internal> tnLvk = Lvk / LvkRef;
+
+    auto& G = tG.ref();
+    auto& nLvk = tnLvk.ref();
+
+    forAll(G, i)
+    {
+        // Calculate normalised von Karman length scale for each cell
+        // and apply the Gaussian function to get the indicator value.
+        const scalar& nLvki = nLvk[i];
+        G[i] = weight1 * exp(-invTwoSigma * sqr(nLvki - 1))
+             - weight2 * sqr(nLvki - 1);
     }
 
     return tG;
@@ -207,59 +326,89 @@ tmp<volScalarField::Internal> sasRefineIndicator::markPeripheryGaussSink
 
 void sasRefineIndicator::calcIndicator()
 {
-    // Mandatory fields on main mesh
-    if
-    (
-        !obr_.foundObject<volScalarField>("Lvk")
-     || !obr_.foundObject<volScalarField>("C1")
-     || !obr_.foundObject<volScalarField>("C2")
-    )
-    {
-        FatalErrorInFunction
-            << "Required fields 'Lvk', 'C1', 'C2' must exist in objectRegistry '"
-            << obr_.name() << "'. None are optional." << nl
-            << "Available volScalarField objects: "
-            << obr_.lookupClass<volScalarField>().toc()
-            << exit(FatalError);
-    }
-
-    const volScalarField& Lvk = obr_.lookupObject<volScalarField>("Lvk");
-    const volScalarField& C1  = obr_.lookupObject<volScalarField>("C1");
-    const volScalarField& C2  = obr_.lookupObject<volScalarField>("C2");
+    const volScalarField& Lvk = lookupObject<volScalarField>("Lvk");
 
     auto& fld = mesh_.lookupObjectRef<volScalarField>(resultName_);
     auto& fldI = fld.internalFieldRef();
 
     const auto& LvkI = Lvk.internalField();
-    const auto& C1I  = C1.internalField();
-    const auto& C2I  = C2.internalField();
 
     switch (focusRegion_)
     {
         case focusRegion::core:
-            // compute fldI based on the function name selected
-            fldI = transferFunction_ == transferFunction::constant
-                ? markCoreConstant(C1I, C2I, coreWeight_)
-                : markCoreOddScaler(C1I, C2I, coreWeight_, sigma_);
+        {
+            const volScalarField& C1  = lookupObject<volScalarField>("C1");
+            const volScalarField& C2  = lookupObject<volScalarField>("C2");
+            const auto& C1I  = C1.internalField();
+            const auto& C2I  = C2.internalField();
+            switch (transferFunction_)
+            {
+                case transferFunction::basic:
+                {
+                    fldI = markCoreBasic(C1I, C2I);
+                    break;
+                }
+                case transferFunction::constant:
+                {
+                    fldI = markCoreConstant(C1I, C2I, weight1_);
+                    break;
+                }
+                case transferFunction::oddScaler:
+                {
+                    fldI = markCoreOddScaler(C1I, C2I, weight2_, sigma_);
+                    break;
+                }
+                case transferFunction::gaussSink:
+                {
+                    fldI = markCoreGaussSink
+                    (
+                        LvkI,
+                        C2I,
+                        weight1_,
+                        weight2_,
+                        sigma_
+                    );
+                    break;
+                }
+            }
             break;
+        }
         case focusRegion::periphery:
+        {
             fldI = markPeripheryGaussSink
             (
                 LvkI,
-                C2I,
-                peripheryWeight1_,
-                peripheryWeight2_,
+                LvkRef_,
+                weight1_,
+                weight2_,
                 sigma_
             );
             break;
-        case focusRegion::combined:
-            break;
+        }
     }
 
+    // Debug info - range of indicator field
     DebugInfo
-        << type() << " '" << name() << "': indicator range = ["
+        << name() << " (" << resultName_ << "): range = ["
         << gMin(fld.internalField()) << ", "
         << gMax(fld.internalField()) << "]" << nl;
+
+    // Debug info - number of cells with indicator >= 0
+    if (debug)
+    {
+        label nPos = 0;
+        forAll(fldI, i)
+        {
+            if (fldI[i] >= 0)
+            {
+                nPos++;
+            }
+        }
+        DebugInfo
+            << name() << " (" << resultName_ << "): found "
+            << nPos << "/" << fldI.size()
+            << " cells with indicator >= 0: " << endl;
+    }
 }
 
 // * * * * * * * * * * * * * *  Read/Execute/Write  * * * * * * * * * * * * * //
@@ -271,8 +420,9 @@ bool sasRefineIndicator::read(const dictionary& dict)
         return false;
     }
 
-    resultName_ = dict.lookupOrDefault<word>("result", "sasRefineIndicator");
-    sigma_ = dict.lookupOrDefault<scalar>("sigma", 0.05);
+    requiredFields_.clear();
+    resultName_ = dict.lookupOrDefault<word>("result", defaultResultName);
+    sigma_ = dict.lookupOrDefault<scalar>("sigma", sigmaDefault);
     focusRegion_ = focusRegionNames_.read(dict.lookup("focusRegion"));
 
     // Testing
@@ -282,7 +432,9 @@ bool sasRefineIndicator::read(const dictionary& dict)
         {
             requiredFields_.append("C1");
             requiredFields_.append("C2");
-            coreWeight_ = dict.lookupOrDefault<scalar>("coreWeight", 10.0);
+            requiredFields_.append("Lvk");
+            weight1_ = dict.lookupOrDefault<scalar>("weight1", weight1Default);
+            weight2_ = dict.lookupOrDefault<scalar>("weight2", weight2Default);
             transferFunction_ = transferFunctionNames_.read(
                 dict.lookup("transferFunction")
             );
@@ -291,9 +443,9 @@ bool sasRefineIndicator::read(const dictionary& dict)
         case focusRegion::periphery:
         {
             requiredFields_.append("Lvk");
-            requiredFields_.append("C2");
-            peripheryWeight1_ = dict.lookupOrDefault<scalar>("peripheryWeight1", 1000.0);
-            peripheryWeight2_ = dict.lookupOrDefault<scalar>("peripheryWeight2", 10.0);
+            weight1_ = dict.lookupOrDefault<scalar>("weight1", weight1Default);
+            weight2_ = dict.lookupOrDefault<scalar>("weight2", weight2Default);
+            LvkRef_ = dict.lookup<scalar>("LvkRef");
             break;
         }
         default:
@@ -314,16 +466,13 @@ bool sasRefineIndicator::read(const dictionary& dict)
     {
         Info<< type() << ' ' << name() << ':' << nl
             << "  focusRegion      : " << focusRegionNames_[focusRegion_] << nl
+            << "  transferFunction : " << transferFunctionNames_[transferFunction_] << nl
             << "  sigma            : " << sigma_ << nl
-            << "  coreWeight       : " << coreWeight_ << nl
-            << "  peripheryWeight1 : " << peripheryWeight1_ << nl
-            << "  peripheryWeight2 : " << peripheryWeight2_ << nl
+            << "  weight1          : " << weight1_ << nl
+            << "  weight2          : " << weight2_ << nl
             << "  result           : " << resultName_ << nl
             << endl;
     }
-
-    DebugInfo
-        << type() << " '" << name() << "': read configuration." << nl;
 
     return true;
 }
@@ -335,18 +484,30 @@ wordList sasRefineIndicator::fields() const
 
 bool sasRefineIndicator::execute()
 {
+    for (const auto& fieldName : requiredFields_)
+    {
+        if (!foundObject<volScalarField>(fieldName))
+        {
+            FatalErrorInFunction
+                << "Required field '" << fieldName << "' not found."
+                << "Available volScalarField objects in object registry: "
+                << obr_.lookupClass<volScalarField>().toc()
+                << exit(FatalError);
+        }
+    }
+
     calcIndicator();
     return true;
 }
 
-
 bool sasRefineIndicator::write()
 {
-    Info << " functionObjects::" << type() << ' ' << name();
-    Info << " writing field: " << resultName_ << endl;
+    Info
+        << "FunctionObjects::" << name() 
+        << " writing field: " << resultName_ << endl;
+
     const auto& fld = mesh_.lookupObject<volScalarField>(resultName_);
     fld.write();
-
     return true;
 }
 
