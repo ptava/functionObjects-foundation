@@ -198,7 +198,7 @@ protected:
     (
         const volScalarField::Internal& c1,
         const volScalarField::Internal& c2,
-        const scalar weight1
+        const scalar weight
     ) const;
 
     //- Transform field via gaussian function
@@ -206,7 +206,7 @@ protected:
     (
         const volScalarField::Internal& c1,
         const volScalarField::Internal& c2,
-        const scalar weight1,
+        const scalar weight,
         const scalar sigma
     ) const;
 
@@ -215,8 +215,7 @@ protected:
     (
         const volScalarField::Internal& Lvk,
         const volScalarField::Internal& c2,
-        const scalar weight1,
-        const scalar weight2,
+        const scalar weight,
         const scalar sigma
     ) const;
 
@@ -224,8 +223,7 @@ protected:
     (
         const volScalarField::Internal& Lvk,
         const scalar LvkRef,
-        const scalar weight1,
-        const scalar weight2,
+        const scalar weight,
         const scalar sigma
     ) const;
 

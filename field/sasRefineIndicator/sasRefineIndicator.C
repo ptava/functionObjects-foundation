@@ -41,7 +41,7 @@ namespace
 {
 const word defaultResultName = "sasRefineIndicator";
 const scalar sigmaDefault = 0.05;
-const scalar weight1Default = 1.0;
+const scalar weight1Default = 0.0;
 const scalar weight2Default = 1.0;
 }
 
@@ -141,7 +141,7 @@ tmp<volScalarField::Internal> sasRefineIndicator::markCoreConstant
 (
     const volScalarField::Internal& c1,
     const volScalarField::Internal& c2,
-    const scalar weight1
+    const scalar weight
 ) const
 {
     DebugInfo
@@ -171,7 +171,7 @@ tmp<volScalarField::Internal> sasRefineIndicator::markCoreConstant
         // Calculate the difference between c2 and c1 for each cell
         // and apply constant value to all positive values.
         scalar d = c2[i] - c1[i];
-        G[i] = d > 0.0 ? weight1 : -GREAT;
+        G[i] = d > 0.0 ? weight : -GREAT;
     }
 
     return tG;
@@ -181,7 +181,7 @@ tmp<volScalarField::Internal> sasRefineIndicator::markCoreOddScaler
 (
     const volScalarField::Internal& c1,
     const volScalarField::Internal& c2,
-    const scalar weight1,
+    const scalar weight,
     const scalar sigma
 ) const
 {
@@ -212,15 +212,16 @@ tmp<volScalarField::Internal> sasRefineIndicator::markCoreOddScaler
     auto& G = tG.ref();
     auto& d = td.ref();
     
+    const scalar dMax = gMax(d);
     forAll(G, i)
     {
         // Calculate the difference between c2 and c1 for each cell
         // and apply an odd, monotonic, sign-preserving function
-        const scalar& di = d[i];
-        G[i] = di * (weight1 * exp(-invTwoSigma * sqr(di)));
+        const scalar dShift = d[i] + weight * dMax;
+        G[i] = dShift * (1.0 - exp(-invTwoSigma * sqr(dShift)));
         
     }
-    G /= gMax(G);
+    G /= gMax(G); // Normalise by maximum value
 
     return tG;
 }
@@ -229,8 +230,7 @@ tmp<volScalarField::Internal> sasRefineIndicator::markCoreGaussSink
 (
     const volScalarField::Internal& Lvk,
     const volScalarField::Internal& c2,
-    const scalar weight1,
-    const scalar weight2,
+    const scalar weight,
     const scalar sigma
 ) const
 {
@@ -267,8 +267,8 @@ tmp<volScalarField::Internal> sasRefineIndicator::markCoreGaussSink
         // Calculate normalised von Karman length scale for each cell
         // and apply the Gaussian function to get the indicator value.
         const scalar& nLvki = nLvk[i];
-        G[i] = weight1 * exp(-invTwoSigma * sqr(nLvki - 1))
-             - weight2 * sqr(nLvki - 1);
+        G[i] = exp(-invTwoSigma * sqr(nLvki - 1))
+             - weight * sqr(nLvki - 1);
     }
 
     return tG;
@@ -278,8 +278,7 @@ tmp<volScalarField::Internal> sasRefineIndicator::markPeripheryGaussSink
 (
     const volScalarField::Internal& Lvk,
     const scalar LvkRef,
-    const scalar weight1,
-    const scalar weight2,
+    const scalar weight,
     const scalar sigma
 ) const
 {
@@ -315,8 +314,8 @@ tmp<volScalarField::Internal> sasRefineIndicator::markPeripheryGaussSink
         // Calculate normalised von Karman length scale for each cell
         // and apply the Gaussian function to get the indicator value.
         const scalar& nLvki = nLvk[i];
-        G[i] = weight1 * exp(-invTwoSigma * sqr(nLvki - 1))
-             - weight2 * sqr(nLvki - 1);
+        G[i] = exp(-invTwoSigma * sqr(nLvki - 1))
+             - weight * sqr(nLvki - 1);
     }
 
     return tG;
@@ -350,12 +349,12 @@ void sasRefineIndicator::calcIndicator()
                 }
                 case transferFunction::constant:
                 {
-                    fldI = markCoreConstant(C1I, C2I, weight1_);
+                    fldI = markCoreConstant(C1I, C2I, weight2_);
                     break;
                 }
                 case transferFunction::oddScaler:
                 {
-                    fldI = markCoreOddScaler(C1I, C2I, weight2_, sigma_);
+                    fldI = markCoreOddScaler(C1I, C2I, weight1_, sigma_);
                     break;
                 }
                 case transferFunction::gaussSink:
@@ -364,7 +363,6 @@ void sasRefineIndicator::calcIndicator()
                     (
                         LvkI,
                         C2I,
-                        weight1_,
                         weight2_,
                         sigma_
                     );
@@ -379,7 +377,6 @@ void sasRefineIndicator::calcIndicator()
             (
                 LvkI,
                 LvkRef_,
-                weight1_,
                 weight2_,
                 sigma_
             );
@@ -406,7 +403,8 @@ void sasRefineIndicator::calcIndicator()
         }
         DebugInfo
             << name() << " (" << resultName_ << "): found "
-            << nPos << "/" << fldI.size()
+            << returnReduce(nPos, sumOp<label>()) << "/"
+            << returnReduce(fldI.size(), sumOp<label>())
             << " cells with indicator >= 0: " << endl;
     }
 }
