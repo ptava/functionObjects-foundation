@@ -115,8 +115,15 @@ bool Foam::functionObjects::refinementInfo::write()
             {
                 const auto& parameter =
                     obr_.lookupObject<uniformDimensionedScalarField>(name);
-                const string& value = Foam::name(parameter.value());
-                writeTabbed(file(), value);
+                const scalar& value = parameter.value();
+                if (std::isnan(value))
+                {
+                    writeTabbed(file(), "N/A");
+                }
+                else
+                {
+                    writeTabbed(file(), Foam::name(value));
+                }
             }
             else
             {
