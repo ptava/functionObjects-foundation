@@ -104,9 +104,6 @@ tmp<volScalarField::Internal> sasRefineIndicator::markCoreBasic
     const volScalarField::Internal& c2
 ) const
 {
-    DebugInfo
-        << "sasRefineIndicator::markCoreBasic called" << nl;
-
     tmp<volScalarField::Internal> tG
     (
         new volScalarField::Internal
@@ -144,9 +141,6 @@ tmp<volScalarField::Internal> sasRefineIndicator::markCoreConstant
     const scalar weight
 ) const
 {
-    DebugInfo
-        << "sasRefineIndicator::markCoreConstant called" << nl;
-
     tmp<volScalarField::Internal> tG
     (
         new volScalarField::Internal
@@ -185,9 +179,6 @@ tmp<volScalarField::Internal> sasRefineIndicator::markCoreOddScaler
     const scalar sigma
 ) const
 {
-    DebugInfo
-        << "sasRefineIndicator::markCoreOddScaler called" << nl;
-
     const scalar invTwoSigma = 0.5/sqr(sigma);
 
     tmp<volScalarField::Internal> tG
@@ -234,9 +225,6 @@ tmp<volScalarField::Internal> sasRefineIndicator::markCoreGaussSink
     const scalar sigma
 ) const
 {
-    DebugInfo
-        << "sasRefineIndicator::markCoreGaussSink called" << nl;
-
     const scalar invTwoSigma = 0.5/(sqr(sigma));
 
     tmp<volScalarField::Internal> tG
@@ -282,9 +270,6 @@ tmp<volScalarField::Internal> sasRefineIndicator::markPeripheryGaussSink
     const scalar sigma
 ) const
 {
-    DebugInfo
-        << "sasRefineIndicator::markPeripheryGaussSink called" << nl;
-
     const scalar invTwoSigma = 0.5/(sqr(sigma));
 
     tmp<volScalarField::Internal> tG
