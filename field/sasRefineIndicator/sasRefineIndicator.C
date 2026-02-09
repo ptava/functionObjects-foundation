@@ -71,6 +71,7 @@ sasRefineIndicator::sasRefineIndicator
 )
 :
     fvMeshFunctionObject(name, runTime, dict),
+    zone_(mesh(), dict),
     focusRegion_(focusRegion::core),
     transferFunction_(transferFunction::constant),
     sigma_(sigmaDefault),
@@ -100,6 +101,7 @@ sasRefineIndicator::sasRefineIndicator
 
 tmp<volScalarField::Internal> sasRefineIndicator::markCoreBasic
 (
+    const labelList& cells,
     const volScalarField::Internal& c1,
     const volScalarField::Internal& c2
 ) const
@@ -123,7 +125,7 @@ tmp<volScalarField::Internal> sasRefineIndicator::markCoreBasic
     );
 
     auto& G = tG.ref();
-    forAll(G, i)
+    for(const label i : cells)
     {
         // Calculate the difference between c2 and c1 for each cell
         // and apply constant value to all positive values.
@@ -136,6 +138,7 @@ tmp<volScalarField::Internal> sasRefineIndicator::markCoreBasic
 
 tmp<volScalarField::Internal> sasRefineIndicator::markCoreConstant
 (
+    const labelList& cells,
     const volScalarField::Internal& c1,
     const volScalarField::Internal& c2,
     const scalar weight
@@ -160,7 +163,7 @@ tmp<volScalarField::Internal> sasRefineIndicator::markCoreConstant
     );
 
     auto& G = tG.ref();
-    forAll(G, i)
+    for(const label i : cells)
     {
         // Calculate the difference between c2 and c1 for each cell
         // and apply constant value to all positive values.
@@ -173,6 +176,7 @@ tmp<volScalarField::Internal> sasRefineIndicator::markCoreConstant
 
 tmp<volScalarField::Internal> sasRefineIndicator::markCoreOddScaler
 (
+    const labelList& cells,
     const volScalarField::Internal& c1,
     const volScalarField::Internal& c2,
     const scalar weight,
@@ -204,7 +208,7 @@ tmp<volScalarField::Internal> sasRefineIndicator::markCoreOddScaler
     auto& d = td.ref();
     
     const scalar dMax = gMax(d);
-    forAll(G, i)
+    for(const label i : cells)
     {
         // Calculate the difference between c2 and c1 for each cell
         // and apply an odd, monotonic, sign-preserving function
@@ -219,6 +223,7 @@ tmp<volScalarField::Internal> sasRefineIndicator::markCoreOddScaler
 
 tmp<volScalarField::Internal> sasRefineIndicator::markCoreGaussSink
 (
+    const labelList& cells,
     const volScalarField::Internal& Lvk,
     const volScalarField::Internal& c2,
     const scalar weight,
@@ -250,7 +255,7 @@ tmp<volScalarField::Internal> sasRefineIndicator::markCoreGaussSink
     auto& G = tG.ref();
     auto& nLvk = tnLvk.ref();
 
-    forAll(G, i)
+    for(const label i : cells)
     {
         // Calculate normalised von Karman length scale for each cell
         // and apply the Gaussian function to get the indicator value.
@@ -264,6 +269,7 @@ tmp<volScalarField::Internal> sasRefineIndicator::markCoreGaussSink
 
 tmp<volScalarField::Internal> sasRefineIndicator::markPeripheryGaussSink
 (
+    const labelList& cells,
     const volScalarField::Internal& Lvk,
     const scalar LvkRef,
     const scalar weight,
@@ -294,7 +300,7 @@ tmp<volScalarField::Internal> sasRefineIndicator::markPeripheryGaussSink
     auto& G = tG.ref();
     auto& nLvk = tnLvk.ref();
 
-    forAll(G, i)
+    for(const label i : cells)
     {
         // Calculate normalised von Karman length scale for each cell
         // and apply the Gaussian function to get the indicator value.
@@ -310,6 +316,7 @@ tmp<volScalarField::Internal> sasRefineIndicator::markPeripheryGaussSink
 
 void sasRefineIndicator::calcIndicator()
 {
+    const labelList& cells = zone_.zone();
     const volScalarField& Lvk = lookupObject<volScalarField>("Lvk");
 
     auto& fld = mesh_.lookupObjectRef<volScalarField>(resultName_);
@@ -329,23 +336,24 @@ void sasRefineIndicator::calcIndicator()
             {
                 case transferFunction::basic:
                 {
-                    fldI = markCoreBasic(C1I, C2I);
+                    fldI = markCoreBasic(cells, C1I, C2I);
                     break;
                 }
                 case transferFunction::constant:
                 {
-                    fldI = markCoreConstant(C1I, C2I, weight2_);
+                    fldI = markCoreConstant(cells, C1I, C2I, weight2_);
                     break;
                 }
                 case transferFunction::oddScaler:
                 {
-                    fldI = markCoreOddScaler(C1I, C2I, weight1_, sigma_);
+                    fldI = markCoreOddScaler(cells, C1I, C2I, weight1_, sigma_);
                     break;
                 }
                 case transferFunction::gaussSink:
                 {
                     fldI = markCoreGaussSink
                     (
+                        cells,
                         LvkI,
                         C2I,
                         weight2_,
@@ -360,6 +368,7 @@ void sasRefineIndicator::calcIndicator()
         {
             fldI = markPeripheryGaussSink
             (
+                cells,
                 LvkI,
                 LvkRef_,
                 weight2_,
@@ -389,7 +398,7 @@ void sasRefineIndicator::calcIndicator()
         DebugInfo
             << name() << " (" << resultName_ << "): found "
             << returnReduce(nPos, sumOp<label>()) << "/"
-            << returnReduce(fldI.size(), sumOp<label>())
+            << zone_.nGlobalCells()
             << " cells with indicator >= 0: " << endl;
     }
 }
@@ -454,6 +463,7 @@ bool sasRefineIndicator::read(const dictionary& dict)
             << "  weight1          : " << weight1_ << nl
             << "  weight2          : " << weight2_ << nl
             << "  result           : " << resultName_ << nl
+            << "  nCells           : " << zone_.nGlobalCells() << nl
             << endl;
     }
 

@@ -135,6 +135,7 @@ SourceFiles
 #include "volFieldsFwd.H"
 #include "surfaceFields.H"
 #include "Switch.H"
+#include "fvCellZone.H"
 
 namespace Foam
 {
@@ -171,6 +172,7 @@ public:
 protected:
 
     // ---- User options
+    fvCellZone       zone_;
     focusRegion      focusRegion_;
     transferFunction transferFunction_;
     scalar           sigma_;
@@ -189,6 +191,7 @@ protected:
     //- Transform field without modification
     tmp<volScalarField::Internal> markCoreBasic
     (
+        const labelList& cells,
         const volScalarField::Internal& c1,
         const volScalarField::Internal& c2
     ) const;
@@ -196,6 +199,7 @@ protected:
     //- Transform field via constant value
     tmp<volScalarField::Internal> markCoreConstant
     (
+        const labelList& cells,
         const volScalarField::Internal& c1,
         const volScalarField::Internal& c2,
         const scalar weight
@@ -204,6 +208,7 @@ protected:
     //- Transform field via gaussian function
     tmp<volScalarField::Internal> markCoreOddScaler
     (
+        const labelList& cells,
         const volScalarField::Internal& c1,
         const volScalarField::Internal& c2,
         const scalar weight,
@@ -213,6 +218,7 @@ protected:
     //- Transform field via gaussian function
     tmp<volScalarField::Internal> markCoreGaussSink
     (
+        const labelList& cells,
         const volScalarField::Internal& Lvk,
         const volScalarField::Internal& c2,
         const scalar weight,
@@ -221,6 +227,7 @@ protected:
 
     tmp<volScalarField::Internal> markPeripheryGaussSink
     (
+        const labelList& cells,
         const volScalarField::Internal& Lvk,
         const scalar LvkRef,
         const scalar weight,
