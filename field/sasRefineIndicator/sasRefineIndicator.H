@@ -165,11 +165,19 @@ public:
         basic,
         constant,
         oddScaler,
+        safeScaler,
         gaussSink
     };
-    static const NamedEnum<transferFunction, 4> transferFunctionNames_;
+    static const NamedEnum<transferFunction, 5> transferFunctionNames_;
 
 protected:
+
+    // ---- Container for mathematically derived coefficients
+    struct optimizationCoeffs
+    {
+        scalar tStar;
+        scalar Khat;
+    };
 
     // ---- User options
     fvCellZone       zone_;
@@ -178,8 +186,11 @@ protected:
     scalar           sigma_;
     scalar           weight1_;
     scalar           weight2_;
+    scalar           alpha_;
     scalar           LvkRef_;
+    bool             controlRunTime_;
     word             resultName_;
+
     wordList         requiredFields_;
 
     // ---- Created field names (scoped)
@@ -187,6 +198,20 @@ protected:
     word subFieldName_;    // field on the sub-mesh (if any)
 
     // ---- Helpers
+
+    //- Create an Internal volScalarField (tmp)
+    tmp<volScalarField::Internal> makeTmpInternal
+    (
+        const word& name,
+        const dimensionedScalar& init
+    ) const;
+
+    //- Calculate or retrieve cached optimization coefficients (tStar, Khat)
+    optimizationCoeffs getOptimizationCoeffs
+    (
+        const scalar weight,
+        const scalar alpha
+    ) const;
 
     //- Transform field without modification
     tmp<volScalarField::Internal> markCoreBasic
@@ -213,6 +238,17 @@ protected:
         const volScalarField::Internal& c2,
         const scalar weight,
         const scalar sigma
+    ) const;
+
+    //- Transform field via gaussian function with dampening term
+    tmp<volScalarField::Internal> markCoreSafeScaler
+    (
+        const labelList& cells,
+        const volScalarField::Internal& c1,
+        const volScalarField::Internal& c2,
+        const scalar weight,
+        const scalar sigma,
+        const scalar alpha
     ) const;
 
     //- Transform field via gaussian function

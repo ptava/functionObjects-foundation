@@ -34,16 +34,144 @@ namespace Foam
 {
 namespace functionObjects
 {
-defineTypeNameAndDebug(sasRefineIndicator, 0);
-addToRunTimeSelectionTable(functionObject, sasRefineIndicator, dictionary);
-
+    defineTypeNameAndDebug(sasRefineIndicator, 0);
+    addToRunTimeSelectionTable(functionObject, sasRefineIndicator, dictionary);
 namespace
 {
+
+// --- Default values
 const word defaultResultName = "sasRefineIndicator";
 const scalar sigmaDefault = 0.05;
 const scalar weight1Default = 0.0;
 const scalar weight2Default = 1.0;
+const scalar alphaDefault = 0.6;
+
+
+// --- Mathematical helpers
+inline scalar expm1Safe(const scalar x)
+{
+    return (mag(x) < 1e-6) ? x + 0.5*sqr(x) : expm1(x);
 }
+
+inline scalar oneMinusExpNeg(const scalar x)
+{
+    return (mag(x) < 1e-6) ? x - 0.5*sqr(x) : -expm1(-x);
+}
+
+// --- Auxiliary functions for markCoreSafeScaler
+inline scalar qOf(const scalar t)
+{
+    if (t > 700.0) return 0.0;
+    
+    const scalar denom = expm1Safe(t);
+    if (mag(denom) <= VSMALL) return 2.0;
+    
+    return 2.0*t/denom;
+}
+
+scalar gOf(const scalar t, const scalar alphaEff, const scalar alphaTarget)
+{
+    if (t <= 0.0) return GREAT;
+
+    const scalar a2  = sqr(alphaEff);
+    const scalar a2t = a2*t;
+    const scalar q   = qOf(a2t);
+
+    const scalar num  = 2.0*alphaEff*oneMinusExpNeg(t);
+    const scalar denA = oneMinusExpNeg(a2t);
+    const scalar denB = 1.0 + a2 + (1.0 - a2)*q;
+
+    if (mag(denA) <= VSMALL || mag(denB) <= VSMALL) return GREAT;
+
+    return (num/(denA*denB)) - alphaTarget;
+}
+
+// Solves for tStar where beta(tStar) = alpha
+scalar solveTStar(const scalar alphaEff, const scalar alphaTarget)
+{
+    const scalar tMin = 1e-12;
+    const scalar tMax = 1e6;
+    const label nGrid = 900;
+
+    // 1. Grid Search
+    scalar bestT = tMin;
+    scalar bestErr = GREAT;
+    scalar tLo = tMin;
+    scalar gLo = gOf(tLo, alphaEff, alphaTarget);
+    scalar tHi = tLo;
+    bool bracketFound = false;
+
+    for (label i = 1; i < nGrid; ++i)
+    {
+        const scalar s = scalar(i)/scalar(nGrid - 1);
+        const scalar t = tMin*pow(tMax/tMin, s);
+        const scalar gv = gOf(t, alphaEff, alphaTarget);
+
+        if (mag(gv) < bestErr)
+        {
+            bestErr = mag(gv);
+            bestT = t;
+        }
+
+        if (gLo*gv <= 0.0)
+        {
+            tHi = t;
+            bracketFound = true;
+            break;
+        }
+
+        tLo = t;
+        gLo = gv;
+    }
+
+    if (!bracketFound)
+    {
+        return bestT;
+    }
+
+    // 2. Bisection Refinement
+    scalar a = tLo;
+    scalar b = tHi;
+    scalar fa = gLo;
+    
+    const label maxIter = 120;
+    const scalar tol = 1e-12;
+
+    for (label it = 0; it < maxIter; ++it)
+    {
+        const scalar m = 0.5*(a + b);
+        const scalar fm = gOf(m, alphaEff, alphaTarget);
+
+        if (mag(fm) < tol || (b - a) < tol) return m;
+
+        if (fa*fm <= 0.0)
+        {
+            b = m;
+        }
+        else
+        {
+            a = m;
+            fa = fm;
+        }
+    }
+
+    return 0.5*(a + b);
+}
+
+scalar calcKhat(const scalar tStar, const scalar alphaEff)
+{
+    const scalar a2tStar = sqr(alphaEff)*tStar;
+    const scalar qStar = qOf(a2tStar);
+    const scalar denomKhat = sqr(alphaEff)*(1.0 - qStar);
+
+    if (mag(denomKhat) > VSMALL)
+    {
+        return (1.0 + qStar)/denomKhat;
+    }
+    return 0.0;
+}
+
+} // End anonymous namespace
 
 const NamedEnum<sasRefineIndicator::focusRegion, 2>
 sasRefineIndicator::focusRegionNames_
@@ -52,12 +180,13 @@ sasRefineIndicator::focusRegionNames_
     "periphery"
 };
 
-const NamedEnum<sasRefineIndicator::transferFunction, 4>
+const NamedEnum<sasRefineIndicator::transferFunction, 5>
 sasRefineIndicator::transferFunctionNames_
 {
     "basic",
     "constant",
     "oddScaler",
+    "safeScaler",
     "gaussSink"
 };
 
@@ -77,6 +206,8 @@ sasRefineIndicator::sasRefineIndicator
     sigma_(sigmaDefault),
     weight1_(weight1Default),
     weight2_(weight2Default),
+    alpha_(alphaDefault),
+    controlRunTime_(false),
     resultName_(defaultResultName)
 {
     read(dict);
@@ -99,20 +230,19 @@ sasRefineIndicator::sasRefineIndicator
 
 // * * * * * * * * * * * * * * * *  Helpers  * * * * * * * * * * * * * * * * //
 
-tmp<volScalarField::Internal> sasRefineIndicator::markCoreBasic
+tmp<volScalarField::Internal> sasRefineIndicator::makeTmpInternal
 (
-    const labelList& cells,
-    const volScalarField::Internal& c1,
-    const volScalarField::Internal& c2
+    const word& name,
+    const dimensionedScalar& init
 ) const
 {
-    tmp<volScalarField::Internal> tG
+    return tmp<volScalarField::Internal>
     (
         new volScalarField::Internal
         (
             IOobject
             (
-                "tmpG",
+                name,
                 mesh_.time().name(),
                 mesh_.thisDb(),
                 IOobject::NO_READ,
@@ -120,11 +250,72 @@ tmp<volScalarField::Internal> sasRefineIndicator::markCoreBasic
                 false
             ),
             mesh_,
-            dimensionedScalar(dimless, -GREAT)
+            init
         )
     );
+}
 
-    auto& G = tG.ref();
+sasRefineIndicator::optimizationCoeffs sasRefineIndicator::getOptimizationCoeffs
+(
+    const scalar weight,
+    const scalar alpha
+) const
+{
+    // Static cache to avoid recomputing tStar/Khat if weight/alpha don't change
+    static HashTable<optimizationCoeffs, word> cache(128);
+
+    // Create a unique key for the current parameters
+    const scalar qScale = 1e9;
+    const label wKey = label(round(weight*qScale));
+    const label aKey = label(round(alpha*qScale));
+    const word key(Foam::name(wKey) + "_" + Foam::name(aKey));
+
+    if (cache.found(key))
+    {
+        return cache[key];
+    }
+
+    // Calculate new coefficients
+    const scalar alphaEff = (alpha + weight)/(1.0 + weight);
+    
+    if (!(alphaEff > 0.0 && alphaEff < 1.0))
+    {
+        FatalErrorInFunction
+            << "Derived alphaEff must be in (0,1). Got " << alphaEff 
+            << " (alpha=" << alpha << ", weight=" << weight << ")."
+            << exit(FatalError);
+    }
+
+    optimizationCoeffs coeffs;
+    coeffs.tStar = solveTStar(alphaEff, alpha);
+    
+    if (!(coeffs.tStar > 0.0))
+    {
+        FatalErrorInFunction
+            << "Failed to determine a valid tStar." << exit(FatalError);
+    }
+
+    coeffs.Khat = calcKhat(coeffs.tStar, alphaEff);
+    
+    cache.insert(key, coeffs);
+    return coeffs;
+}
+
+tmp<volScalarField::Internal> sasRefineIndicator::markCoreBasic
+(
+    const labelList& cells,
+    const volScalarField::Internal& c1,
+    const volScalarField::Internal& c2
+) const
+{
+    tmp<volScalarField::Internal> tG =
+        makeTmpInternal
+        (
+            "tmpG",
+            dimensionedScalar(dimless, -GREAT)
+        );
+    volScalarField::Internal& G = tG.ref();
+
     for(const label i : cells)
     {
         // Calculate the difference between c2 and c1 for each cell
@@ -144,25 +335,14 @@ tmp<volScalarField::Internal> sasRefineIndicator::markCoreConstant
     const scalar weight
 ) const
 {
-    tmp<volScalarField::Internal> tG
-    (
-        new volScalarField::Internal
+    tmp<volScalarField::Internal> tG =
+        makeTmpInternal
         (
-            IOobject
-            (
-                "tmpG",
-                mesh_.time().name(),
-                mesh_.thisDb(),
-                IOobject::NO_READ,
-                IOobject::NO_WRITE,
-                false
-            ),
-            mesh_,
+            "tmpG",
             dimensionedScalar(dimless, -GREAT)
-        )
-    );
+        );
+    volScalarField::Internal& G = tG.ref();
 
-    auto& G = tG.ref();
     for(const label i : cells)
     {
         // Calculate the difference between c2 and c1 for each cell
@@ -185,41 +365,141 @@ tmp<volScalarField::Internal> sasRefineIndicator::markCoreOddScaler
 {
     const scalar invTwoSigma = 0.5/sqr(sigma);
 
-    tmp<volScalarField::Internal> tG
-    (
-        new volScalarField::Internal
+    tmp<volScalarField::Internal> tG =
+        makeTmpInternal
         (
-            IOobject
-            (
-                "tmpG",
-                mesh_.time().name(),
-                mesh_.thisDb(),
-                IOobject::NO_READ,
-                IOobject::NO_WRITE,
-                false
-            ),
-            mesh_,
+            "tmpG",
             dimensionedScalar(dimless, -GREAT)
-        )
-    );
-    tmp<volScalarField::Internal> td(c2 - c1);
+        );
+    volScalarField::Internal& G = tG.ref();
+    const tmp<volScalarField::Internal> td(c2 - c1);
+    const volScalarField::Internal& d = td.ref();
 
-    auto& G = tG.ref();
-    auto& d = td.ref();
-    
-    const scalar dMax = gMax(d);
-    for(const label i : cells)
+    scalar dMaxLocal = -GREAT;
+    for (const label i : cells)
+    {
+        dMaxLocal = max(dMaxLocal, d[i]);
+    }
+    const scalar dMax = returnReduce(dMaxLocal, maxOp<scalar>());
+
+    if (dMax <= SMALL)
+    {
+        return tG;
+    }
+
+    const scalar shift = weight * dMax;
+    for (const label celli : cells)
     {
         // Calculate the difference between c2 and c1 for each cell
         // and apply an odd, monotonic, sign-preserving function
-        const scalar dShift = d[i] + weight * dMax;
-        G[i] = dShift * (1.0 - exp(-invTwoSigma * sqr(dShift)));
-        
+        const scalar u = d[celli] + shift;
+        const scalar x = invTwoSigma * sqr(u);
+        G[celli] = u * oneMinusExpNeg(x);
     }
-    G /= gMax(G); // Normalise by maximum value
+    // Normalise by maximum value of G for d > -shift
+    // const scalar maxG = gMax(G);
+    // for (const label i : cells)
+    // {
+    //     const scalar u = d[i] + shift;
+    //     const scalar Gi = G[i];
+    //     G[i] = (u > 0.0) ? Gi/maxG : Gi;
+    // }
+    // Normalise by maximum value of G
+    G /= gMax(G);
 
     return tG;
 }
+
+tmp<volScalarField::Internal>
+sasRefineIndicator::markCoreSafeScaler
+(
+    const labelList& cells,
+    const volScalarField::Internal& c1,
+    const volScalarField::Internal& c2,
+    const scalar weight,
+    const scalar sigma,
+    const scalar alpha
+) const
+{
+    if (alpha <= 0.0 || alpha > 1.0)
+    {
+        FatalErrorInFunction
+            << "'alpha' must be in the range (0, 1] (got " << alpha << ")."
+            << exit(FatalError);
+    }
+
+    if (alpha == 1.0)
+    {
+        return markCoreOddScaler(cells, c1, c2, weight, sigma);
+    }
+
+    tmp<volScalarField::Internal> tG =
+        makeTmpInternal
+        (
+            "tmpG",
+            dimensionedScalar(dimless, -GREAT)
+        );
+    volScalarField::Internal& G = tG.ref();
+    const tmp<volScalarField::Internal> td(c2 - c1);
+    const volScalarField::Internal& d = td.ref();
+
+    scalar dMaxLocal = -GREAT;
+    for (const label i : cells)
+    {
+        dMaxLocal = max(dMaxLocal, d[i]);
+    }
+    const scalar dMax = returnReduce(dMaxLocal, maxOp<scalar>());
+
+    if (dMax <= SMALL)
+    {
+        DebugInfo
+            << " No positive values of d found (dMax=" << dMax << ")."
+            << endl;
+        return tG;
+    }
+
+    // Retrieve mathematical constants (cached)
+    const optimizationCoeffs coeffs = getOptimizationCoeffs(weight, alpha);
+
+    // Calculate scaling factors
+    const scalar shift = weight*dMax;
+    const scalar uMax  = (1.0 + weight)*dMax;
+    const scalar sigmaStar = uMax/sqrt(2.0*coeffs.tStar);
+    const scalar kStar     = coeffs.Khat/sqr(uMax);
+    const scalar invTwoSigma2 = 0.5/sqr(sigmaStar);
+
+    // 5. Apply scaler field-wise
+    for (const label celli : cells)
+    {
+        const scalar u = d[celli] + shift;
+
+        // Base gaussian-like scaler
+        scalar y = u*oneMinusExpNeg(sqr(u)*invTwoSigma2);
+
+        // Apply damping denominator if u > 0
+        if (u > 0.0)
+        {
+            const scalar denom = 1.0 + kStar*sqr(u);
+            y = (denom > SMALL) ? (y / denom) : 0.0;
+        }
+
+        G[celli] = y;
+    }
+
+    // Normalise by maximum value of G for d > -shift
+    // const scalar maxG = gMax(G);
+    // for (const label i : cells)
+    // {
+    //     const scalar u = d[i] + shift;
+    //     const scalar Gi = G[i];
+    //     G[i] = (u > 0.0) ? Gi/maxG : Gi;
+    // }
+    // Normalise by maximum value of G
+    G /= gMax(G);
+
+    return tG;
+}
+
 
 tmp<volScalarField::Internal> sasRefineIndicator::markCoreGaussSink
 (
@@ -232,23 +512,12 @@ tmp<volScalarField::Internal> sasRefineIndicator::markCoreGaussSink
 {
     const scalar invTwoSigma = 0.5/(sqr(sigma));
 
-    tmp<volScalarField::Internal> tG
-    (
-        new volScalarField::Internal
+    tmp<volScalarField::Internal> tG =
+        makeTmpInternal
         (
-            IOobject
-            (
-                "tmpG",
-                mesh_.time().name(),
-                mesh_.thisDb(),
-                IOobject::NO_READ,
-                IOobject::NO_WRITE,
-                false
-            ),
-            mesh_,
+            "tmpG",
             dimensionedScalar(dimless, -GREAT)
-        )
-    );
+        );
     tmp<volScalarField::Internal> tnLvk = Lvk / 
         ( c2 + dimensionedScalar(dimLength, VSMALL));
 
@@ -278,23 +547,12 @@ tmp<volScalarField::Internal> sasRefineIndicator::markPeripheryGaussSink
 {
     const scalar invTwoSigma = 0.5/(sqr(sigma));
 
-    tmp<volScalarField::Internal> tG
-    (
-        new volScalarField::Internal
+    tmp<volScalarField::Internal> tG =
+        makeTmpInternal
         (
-            IOobject
-            (
-                "tmpG",
-                mesh_.time().name(),
-                mesh_.thisDb(),
-                IOobject::NO_READ,
-                IOobject::NO_WRITE,
-                false
-            ),
-            mesh_,
+            "tmpG",
             dimensionedScalar(dimless, -GREAT)
-        )
-    );
+        );
     tmp<volScalarField::Internal> tnLvk = Lvk / LvkRef;
 
     auto& G = tG.ref();
@@ -317,12 +575,9 @@ tmp<volScalarField::Internal> sasRefineIndicator::markPeripheryGaussSink
 void sasRefineIndicator::calcIndicator()
 {
     const labelList& cells = zone_.zone();
-    const volScalarField& Lvk = lookupObject<volScalarField>("Lvk");
 
     auto& fld = mesh_.lookupObjectRef<volScalarField>(resultName_);
     auto& fldI = fld.internalFieldRef();
-
-    const auto& LvkI = Lvk.internalField();
 
     switch (focusRegion_)
     {
@@ -349,8 +604,20 @@ void sasRefineIndicator::calcIndicator()
                     fldI = markCoreOddScaler(cells, C1I, C2I, weight1_, sigma_);
                     break;
                 }
+                case transferFunction::safeScaler:
+                {
+                    // TO DO: read dynamically from dict
+                    // if (controlRunTime_)
+                    // {
+                    //     alpha_ = readScalar(dict().lookup("alpha"));
+                    // }
+                    fldI = markCoreSafeScaler(cells, C1I, C2I, weight1_, sigma_, alpha_);
+                    break;
+                }
                 case transferFunction::gaussSink:
                 {
+                    const volScalarField& Lvk = lookupObject<volScalarField>("Lvk");
+                    const auto& LvkI = Lvk.internalField();
                     fldI = markCoreGaussSink
                     (
                         cells,
@@ -366,6 +633,8 @@ void sasRefineIndicator::calcIndicator()
         }
         case focusRegion::periphery:
         {
+            const volScalarField& Lvk = lookupObject<volScalarField>("Lvk");
+            const auto& LvkI = Lvk.internalField();
             fldI = markPeripheryGaussSink
             (
                 cells,
@@ -417,7 +686,6 @@ bool sasRefineIndicator::read(const dictionary& dict)
     sigma_ = dict.lookupOrDefault<scalar>("sigma", sigmaDefault);
     focusRegion_ = focusRegionNames_.read(dict.lookup("focusRegion"));
 
-    // Testing
     switch (focusRegion_)
     {
         case focusRegion::core:
@@ -427,9 +695,11 @@ bool sasRefineIndicator::read(const dictionary& dict)
             requiredFields_.append("Lvk");
             weight1_ = dict.lookupOrDefault<scalar>("weight1", weight1Default);
             weight2_ = dict.lookupOrDefault<scalar>("weight2", weight2Default);
+            alpha_ = dict.lookupOrDefault<scalar>("alpha", alphaDefault);
             transferFunction_ = transferFunctionNames_.read(
                 dict.lookup("transferFunction")
             );
+
             break;
         }
         case focusRegion::periphery:
@@ -451,7 +721,16 @@ bool sasRefineIndicator::read(const dictionary& dict)
     if (sigma_ <= SMALL)
     {
         FatalIOErrorInFunction(dict)
-            << "'sigma' must be > 0 (got " << sigma_ << ")." << exit(FatalIOError);
+            << "'sigma' must be > 0 (got " << sigma_ << ")." 
+            << exit(FatalIOError);
+    }
+
+    if (weight1_ < 0.0 || weight2_ < 0.0)
+    {
+        FatalIOErrorInFunction(dict)
+            << "'weight1' and 'weight2' must be non-negative (got "
+            << weight1_ << " and " << weight2_ << ")."
+            << exit(FatalIOError);
     }
 
     if (log)
@@ -462,6 +741,7 @@ bool sasRefineIndicator::read(const dictionary& dict)
             << "  sigma            : " << sigma_ << nl
             << "  weight1          : " << weight1_ << nl
             << "  weight2          : " << weight2_ << nl
+            << "  alpha            : " << alpha_ << nl
             << "  result           : " << resultName_ << nl
             << "  nCells           : " << zone_.nGlobalCells() << nl
             << endl;
