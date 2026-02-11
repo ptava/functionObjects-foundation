@@ -8,19 +8,20 @@ This repository contains a collection of additional OpenFOAM foundation function
 ### 1. refinementInfo
 This function object writes any user-specified `uniformDimensionedScalarField` found in the registry at each `execute()` call.
 
-Notes:
-- created to write run-time into a file all info available associated with mesh refinement process;
-- it needs modified `refiner` (see [modified dynamicFvMesh](https://github.com/ptava/fvMeshTopoChangers.git)) because is designed to access stored values in the registry such as `nTotToRefine`, `nTotRefined`, `lowerLimit`, `upperLimit` etc.
+> [!NOTE]
+> - created to write run-time into a file all info available associated with mesh refinement process;
+>
+> - it needs modified `refiner` (see [modified dynamicFvMesh](https://github.com/ptava/fvMeshTopoChangers.git)) because is designed to access stored values in the registry such as `nTotToRefine`, `nTotRefined`, `lowerLimit`, `upperLimit` etc.
 
 ---
 
 ### 2. sasRefineIndicator
 This function object generates a `volScalarField` that drives adaptive mesh refinement.
 
-Notes:
-- it is tailored for Scale-Adaptive Simulation (SAS) modelling, where mesh refinement should focus on regions of interest defined bu the turbulence length scales;
-
-- requires length scale `Lvk` and its terms `C1` and `C2` (where $Lvk=max(C1,C2)$): available options to store these fields are in a modified `kOmegaSSTSAS` turbulence model (see [modified kOmegaSSTSAS](https://github.com/ptava/kOmegaSSTSAS.git)).
+> [!NOTE]
+> - computations are restricted to `cellZone` defined by the user, allowing to focus refinement on specific regions of the domain;
+> - it is tailored for Scale-Adaptive Simulation (SAS) modelling, where mesh refinement should focus on regions of interest defined bu the turbulence length scales;
+> - requires length scale `Lvk` and its terms `C1` and `C2` (where $Lvk=max(C1,C2)$): available options to store these fields are in a modified `kOmegaSSTSAS` turbulence model (see [modified kOmegaSSTSAS](https://github.com/ptava/kOmegaSSTSAS.git)).
 
 #### Available user options (refinement criteria):
 
@@ -29,9 +30,9 @@ designed to serve as an adaptive refinement indicator for a Scale Adaptive
 (SA) turbulente model.
 
 Where:
-- \f$ L_{vk} = \max(c_1, c_2) \f$
-- \f$ c_1 \f$ is the physical turbulence length scale
-- \f$ c_2 \f$ is the grid-related high wave number damper (linked to grid size)
+- $ L_{vk} = \max(c_1, c_2) $
+- $ c_1 $ is the physical turbulence length scale
+- $ c_2 $ is the grid-related high wave number damper (linked to grid size)
 
 The porpose is to adaptively refine mesh in regions where vortices are being
 detected by a scale-resolving simulation, refining in vortices-associated
@@ -41,8 +42,7 @@ Options are provided to enphasise different regions of the flow/vortices:
 
 1. **focusRegion == core**
 
-Focuses refinement where the grid filter is most active, ideally in the
-core of detected eddies.
+Focuses refinement targeting the core of turbulent eddies detected by Scale-Adaptive Simulation (SAS) models. It aims to refine the mesh where the "grid filter" ($c_2$) is larger than the "physical length scale" ($c_1$), indicating that the current mesh is too coarse to resolve the turbulent structures present.
 
 Available transfer functions:
 
@@ -50,10 +50,12 @@ Available transfer functions:
 a) **markCoreConstant**:
 ```
 
-Apply constant value to all cells where d = c2 - c1 > 0
-\f[
+Apply constant value to all cells where $d = c2 - c1 > 0$
+
+```math
     f(d) = \text{const}
-\f]
+```
+
 
 ```
 b) **markCoreOddScaler**:
@@ -79,37 +81,101 @@ origin, normalised by its maximum value:
 </table>
 
 
-\f[
-  f(d) = \overline{d} \cdot \left( c - \exp\left( -\frac{\overline{d}^2}{2 \sigma^2} \right) \right), \quad c \geq 1.0
-\f]
+```math
+  f(d) = \overline{d} \cdot \left( 1 - \exp\left( -rac{\overline{d}^2}{2 \sigma^2} \right) \right)
+```
 
-> [!NOTE]:
-> - As \f$ |d| \to \infty \f$, the exponential vanishes, and \f$ f(d) \sim c \cdot d \f$
-> - \f$ c = 1.0 \f$, function behaves cubically near 0 - useful for smoothly marking the interface region
-> - \f$ \sigma \in [0.0, 1.0] \f$ controls the width of the transition region leading to steep decrease of \f$ f(d) \f$ near \f$ d^{max} \f$ (default: 0.0)
-> - \f$ \overline{d} = d + w \cdot d^{max} \f$, with \f$ w \geq 0 \f$ - shifts the function to the left including in the refinement region also cells with small negative \f$ d \f$
-> - f(d) is normalised by its maximum value to ensure consistent marking strength
+
+> [!NOTE]
+> - As $ |d| \to \infty $, the exponential vanishes, and $ f(d) \sim c \cdot d $
+> - $ \lim_{x \to a} f(x) = x^3 $ - function behaves cubically near 0 (useful for smoothly marking the interface region)
+> - $ \sigma \in [0.0, 1.0] \f$ controls the width of the transition region leading to steep decrease of \f$ f(d) \f$ near \f$ d^{max} \f$ (default: 0.0)
+> - $ \overline{d} = d + w \cdot d^{max} \f$, with \f$ w \geq 0 \f$ - shifts the function to the left including in the refinement region also cells with small negative \f$ d \f$
+> - output function normalised by its maximum value
 
 <p align="center">
     <img src="imgs/os_1_0_18931.png" width="50%" height="50%">
+    <br>
     <em>Example with $\sigma \eq 1$ and $w \eq 0</em>
 </p>
 <p align="center">
     <img src="imgs/os_1_0p3_22534.png" width="50%" height="50%">
+    <br>
     <em>Example with $\sigma \eq 1$ and $w \eq 0.3</em>
 </p>
 <p align="center">
     <img src="imgs/os_1_0p5_24348.png" width="50%" height="50%">
+    <br>
     <em>Example with $\sigma \eq 1$ and $w \eq 0.5</em>
 </p>
 <p align="center">
     <img src="imgs/os_1_1_28106.png" width="50%" height="50%">
+    <br>
     <em>Example with $\sigma \eq 1$ and $w \eq 1</em>
 </p>
 
+```
+c) **markCoreSafeScaler**:
+```
+
+Based on the previously described odd transfer function (i.e. *oddScaler*) but with a safe control of the maximum value of the input field.
+
+This transfer function is designed to decrease the relevance of cells with large positive $d$ values. The reason is that, AMR might lead to numerical issues that propagates fast into the domain leading to an abrupt increase of cells with large positive $d$ values (not representative of the actual flow features). This transfer function is designed to mitigate this issue by applying a damping mechanism controlled by the parameter $\alpha$, which have a dual effect:
+ - decreasing alpha shift the maximum value of the function to the left, towards $\overline{d} = 0$ (i.e., towards $d = -w \cdot d^{max}$);
+ - decrease the function value at $d = d^{max}$
+
+```math
+    f^{oddScaler}(d) = \overline{d} \cdot \left( 1 - \exp\left( -rac{\overline{d}^2}{2 \sigma^2} \right) \right)
+    f^{safe}(d) =   \left\{
+    \begin{array}{ll}
+        1 & \overline(d) \leq 0 \\
+        \frac{1}{1 + \kappa^\ast \cdot \overline{d}^2} & \overline(d) \g 0
+    \end{array}
+    \right.
+    f(d) =  \left\{
+    \begin{array}{ll}
+        f^{oddScaler}(d) \cdot f^{safe}(d) & w != 1 \\
+        f^{oddScaler}(d) & w = 1
+    \end{array}
+    \right.
+```
+
+> [!NOTE]
+> - $\overline{d} = d + w \cdot d^{max}$ same definition as before
+> - $\kappa^\ast$ is a calculated coefficient that forces the function to peak at $d = \alpha \cdot d^{max}$
+> - $0 < \alpha <= 1$ user-defined parameter to control function peak position and its ratio to the value at $d = d^{max}$ (default: 0.6)
+> - additional damping function for $\overline{d} > 0$ to ensure that: $d^{peak} = \alpha \cdot d^{max}$, where d^{peak} is the value of d for which the function peaks
+> - for a given $\alpha$, the values of sigma and $\kappa$ are computed targeting the following condition: $f(d^{max}) = \alpha$ and $f(d^{peak})
+> - if $\alpha = 1$, oddScaler is used with user-defined sigma value
+> - the output function is normalised by its maximum value
+> - *t* defined as normalised coordinate $t = \frac{\overline{d}}{2*\sigma^2}$ and $t^\ast = \frac{\overline{d}_{max}}{2*\sigma^2}$ are used in the derivation of the damping coefficient to satisfy user's constraint $\alpha$
+
+> [!IMPORTANT]
+> The implementation is split into three parts: (a) utilities, (b) coefficients caching, and (c) field operation loop.
+> (a) utilities:
+> - `qOf(t)` calculates auxiliary variable used in the derivation of the damping coefficients, including safety check for small t using Taylor expansion.
+> - `gOf(t)` is the objective function for the root-finding algorithm, designed to find seek *t* such that $g(t) = 0$. Where $/beta(t)$ represents the effective damping ratio at a specific normalised coordinate *t*.
+> - `solveTStar` finds the root $t^\ast$ of $g(t) = 0$ in two steps: (1) grid search scanning a logarithmic range of t to find a bracket where the function changes sign, and (2) bisection method to refine the root within the identified bracket.
+> - `calcKhat(tStar)` once $t^\ast$ is found, this function computes the corresponding damping coefficient $\hat{\kappa}$ using
+> (b) coefficients caching (`getOptimizationCoeffs`):
+> calculating $t^\ast$ involves iterative root-finding which can be computationally expensive. To mitigate this, the implementation includes a caching mechanism that stores previously calculated $t^\ast$ values for given $\alpha$ and $w$ parameters, to recover values if parameters do not change between iterations.
+ > - static `HashTable<optimizationCoeffs, word> cache` stores the results
+ > - unique string key generated from $\alpha$ and $w$ parameters to identify cached results
+ > - the logic follows a check if the key exists in the cache, if yes, it returns the cached value of `tStar` and `Khat`, if not, it calls `solveTStar` and `calcKhat` storing the results in the cache before returning them.
+ > (c) field operation loop:
+ > - input validation because we want control alpha dynamically during the simulation
+ > - fallback to oddScaler if alpha is equal to 1 (i.e., no damping)
+ > - retrieve coefficient from cache or calculate it if not available
+ > - apply the transfer function to the field in a loop over all cells based on the effective Gaussian width (`sigmaStar`) and the damping coefficient (`kStar`)
+
+
+ > [!WARNING]
+ > - not addressed crash testing with $w > 2$
+
+
 
 ```
-c) **markCoreGaussSink**:
+d) **markCoreGaussSink**:
  ```
 
 Gaussian-like function peaking where nLvk = Lvk / c2 = 1, and decays for
@@ -131,33 +197,38 @@ increasing values of nLvk:
   </tr>
 </table>
 
-\f[
-    f(nLvk) = \exp\left( -\frac{1}{2} \left( \frac{nLvk - 1}{\sigma} \right)^2 \right) + w \cdot (nLvk - 1)^2
-\f]
+```math
+    f(nLvk) = \exp\left( -rac{1}{2} \left( \frac{nLvk - 1}{\sigma} \right)^2 \right) + w \cdot (nLvk - 1)^2
+```
+
 
 <p align="center">
     <img src="imgs/gs_0p05_1_20037.png" width="50%" height="50%">
+    <br>
     <em>Example with $\sigma \eq 0.05$ and $w \eq 1</em>
 </p>
 <p align="center">
     <img src="imgs/gs_0p5_1_24103.png" width="50%" height="50%">
+    <br>
     <em>Example with $\sigma \eq 0.5$ and $w \eq 1</em>
 </p>
 <p align="center">
     <img src="imgs/gs_0p05_1_span.png" width="50%" height="50%">
+    <br>
     <em>Example with $\sigma \eq 0.05$ and $w \eq 1</em>
 </p>
 
 <p align="center">
     <img src="imgs/gs_0p5_10_span.png" width="50%" height="50%">
+    <br>
     <em>Example with $\sigma \eq 0.05$ and $w \eq 10</em>
 </p>
 
 
-> [!NOTE]:
-> - \f$ w \geq 0 \f$
-> - \f$ w \f$ controls values outside the focus region
-> - by construction, \f$ L_{vk} = max(c_1, c_2) \f$ therefore all cells where \f$ c_1 \leq c_2 \f$ (i.e., d >= 0) are going to have \f$ nLvk \leq 1 \f$
+> [!NOTE]
+> - $w \geq 0$
+> - $w$ controls values outside the focus region
+> - by construction, $L_{vk} = max(c_1, c_2)$ therefore all cells where $c_1 \leq c_2$ (i.e., $d >= 0$) are going to have $nLvk \leq 1$
 
 2. **focusRegion = "periphery"**
 
@@ -167,15 +238,15 @@ their core.
 Available transfer functions:
 
 ```
-d) **markPeripheryGaussSink**:
+e) **markPeripheryGaussSink**:
 ```
 
 Gaussian-like function peaking at a user-defined reference value
 of Lvk (e.g., a free-stream value). Same as 'c' but different nLvk
 definition:
 
-\f[
-    f(nLvk) = w_1 \cdot \exp\left( -\frac{1}{2} \left( \frac{nLvk - 1}{\sigma} \right)^2 \right) - w_2 \cdot (nLvk - 1)^2
-\f]
 
+```math
+    f(nLvk) = w_1 \cdot \exp\left( -rac{1}{2} \left( \frac{nLvk - 1}{\sigma} \right)^2 \right) - w_2 \cdot (nLvk - 1)^2
+```
 
