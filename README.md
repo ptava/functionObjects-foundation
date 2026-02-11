@@ -30,9 +30,9 @@ designed to serve as an adaptive refinement indicator for a Scale Adaptive
 (SA) turbulente model.
 
 Where:
-- $ L_{vk} = \max(c_1, c_2) $
-- $ c_1 $ is the physical turbulence length scale
-- $ c_2 $ is the grid-related high wave number damper (linked to grid size)
+- $L_{vk} = \max(c_1, c_2)$
+- $c_1$ is the physical turbulence length scale
+- $c_2$ is the grid-related high wave number damper (linked to grid size)
 
 The porpose is to adaptively refine mesh in regions where vortices are being
 detected by a scale-resolving simulation, refining in vortices-associated
@@ -40,7 +40,7 @@ regions and coarsening outside them.
 
 Options are provided to enphasise different regions of the flow/vortices:
 
-1. **focusRegion == core**
+1. **focusRegion = "core"**
 
 Focuses refinement targeting the core of turbulent eddies detected by Scale-Adaptive Simulation (SAS) models. It aims to refine the mesh where the "grid filter" ($c_2$) is larger than the "physical length scale" ($c_1$), indicating that the current mesh is too coarse to resolve the turbulent structures present.
 
@@ -82,36 +82,36 @@ origin, normalised by its maximum value:
 
 
 ```math
-  f(d) = \overline{d} \cdot \left( 1 - \exp\left( -rac{\overline{d}^2}{2 \sigma^2} \right) \right)
+  f(d) = \overline{d} \cdot \left( 1 - \exp\left( -\frac{\overline{d}^2}{2 \sigma^2} \right) \right)
 ```
 
 
 > [!NOTE]
-> - As $ |d| \to \infty $, the exponential vanishes, and $ f(d) \sim c \cdot d $
-> - $ \lim_{x \to a} f(x) = x^3 $ - function behaves cubically near 0 (useful for smoothly marking the interface region)
-> - $ \sigma \in [0.0, 1.0] \f$ controls the width of the transition region leading to steep decrease of \f$ f(d) \f$ near \f$ d^{max} \f$ (default: 0.0)
-> - $ \overline{d} = d + w \cdot d^{max} \f$, with \f$ w \geq 0 \f$ - shifts the function to the left including in the refinement region also cells with small negative \f$ d \f$
+> - As $|d| \to \infty$, the exponential vanishes, and $f(d) \sim c \cdot d$
+> - $\lim_{x \to a} f(x) = x^3$ - function behaves cubically near 0 (useful for smoothly marking the interface region)
+> - $\sigma \in (0.0, 1.0]$ controls the width of the transition region leading to steep decrease of $f(d)$ near $d^{max}$ for increasing $\sigma$ values
+> - $\overline{d} = d + w \cdot d^{max}$, with $w \geq 0$ - shifts the function to the left including in the refinement region also cells with small negative $d$ values
 > - output function normalised by its maximum value
 
 <p align="center">
     <img src="imgs/os_1_0_18931.png" width="50%" height="50%">
     <br>
-    <em>Example with $\sigma \eq 1$ and $w \eq 0</em>
+    <em>Example with $\sigma \eq 1$ and $w \eq 0$</em>
 </p>
 <p align="center">
     <img src="imgs/os_1_0p3_22534.png" width="50%" height="50%">
     <br>
-    <em>Example with $\sigma \eq 1$ and $w \eq 0.3</em>
+    <em>Example with $\sigma \eq 1$ and $w \eq 0.3$</em>
 </p>
 <p align="center">
     <img src="imgs/os_1_0p5_24348.png" width="50%" height="50%">
     <br>
-    <em>Example with $\sigma \eq 1$ and $w \eq 0.5</em>
+    <em>Example with $\sigma \eq 1$ and $w \eq 0.5$</em>
 </p>
 <p align="center">
     <img src="imgs/os_1_1_28106.png" width="50%" height="50%">
     <br>
-    <em>Example with $\sigma \eq 1$ and $w \eq 1</em>
+    <em>Example with $\sigma \eq 1$ and $w \eq 1$</em>
 </p>
 
 ```
@@ -125,11 +125,11 @@ This transfer function is designed to decrease the relevance of cells with large
  - decrease the function value at $d = d^{max}$
 
 ```math
-    f^{oddScaler}(d) = \overline{d} \cdot \left( 1 - \exp\left( -rac{\overline{d}^2}{2 \sigma^2} \right) \right)
+    f^{oddScaler}(d) = \overline{d} \cdot \left( 1 - \exp\left( -\frac{\overline{d}^2}{2 \sigma^2} \right) \right)
     f^{safe}(d) =   \left\{
     \begin{array}{ll}
-        1 & \overline(d) \leq 0 \\
-        \frac{1}{1 + \kappa^\ast \cdot \overline{d}^2} & \overline(d) \g 0
+        1 & \overline{d} \leq 0 \\
+        \frac{1}{1 + \kappa^\ast \cdot \overline{d}^2} & \overline(d) > 0
     \end{array}
     \right.
     f(d) =  \left\{
@@ -143,7 +143,7 @@ This transfer function is designed to decrease the relevance of cells with large
 > [!NOTE]
 > - $\overline{d} = d + w \cdot d^{max}$ same definition as before
 > - $\kappa^\ast$ is a calculated coefficient that forces the function to peak at $d = \alpha \cdot d^{max}$
-> - $0 < \alpha <= 1$ user-defined parameter to control function peak position and its ratio to the value at $d = d^{max}$ (default: 0.6)
+> - $0 < \alpha \leq 1$ user-defined parameter to control function peak position and its ratio to the value at $d = d^{max}$ (default: 0.6)
 > - additional damping function for $\overline{d} > 0$ to ensure that: $d^{peak} = \alpha \cdot d^{max}$, where d^{peak} is the value of d for which the function peaks
 > - for a given $\alpha$, the values of sigma and $\kappa$ are computed targeting the following condition: $f(d^{max}) = \alpha$ and $f(d^{peak})
 > - if $\alpha = 1$, oddScaler is used with user-defined sigma value
@@ -198,37 +198,37 @@ increasing values of nLvk:
 </table>
 
 ```math
-    f(nLvk) = \exp\left( -rac{1}{2} \left( \frac{nLvk - 1}{\sigma} \right)^2 \right) + w \cdot (nLvk - 1)^2
+    f(nLvk) = \exp\left( -\frac{1}{2} \left( \frac{nLvk - 1}{\sigma} \right)^2 \right) + w \cdot (nLvk - 1)^2
 ```
 
 
 <p align="center">
     <img src="imgs/gs_0p05_1_20037.png" width="50%" height="50%">
     <br>
-    <em>Example with $\sigma \eq 0.05$ and $w \eq 1</em>
+    <em>Example with $\sigma \eq 0.05$ and $w \eq 1$</em>
 </p>
 <p align="center">
     <img src="imgs/gs_0p5_1_24103.png" width="50%" height="50%">
     <br>
-    <em>Example with $\sigma \eq 0.5$ and $w \eq 1</em>
+    <em>Example with $\sigma \eq 0.5$ and $w \eq 1$</em>
 </p>
 <p align="center">
     <img src="imgs/gs_0p05_1_span.png" width="50%" height="50%">
     <br>
-    <em>Example with $\sigma \eq 0.05$ and $w \eq 1</em>
+    <em>Example with $\sigma \eq 0.05$ and $w \eq 1$</em>
 </p>
 
 <p align="center">
     <img src="imgs/gs_0p5_10_span.png" width="50%" height="50%">
     <br>
-    <em>Example with $\sigma \eq 0.05$ and $w \eq 10</em>
+    <em>Example with $\sigma \eq 0.05$ and $w \eq 10$</em>
 </p>
 
 
 > [!NOTE]
 > - $w \geq 0$
 > - $w$ controls values outside the focus region
-> - by construction, $L_{vk} = max(c_1, c_2)$ therefore all cells where $c_1 \leq c_2$ (i.e., $d >= 0$) are going to have $nLvk \leq 1$
+> - by construction, $L_{vk} = max(c_1, c_2)$ therefore all cells where $c_1 \leq c_2$ (i.e., $d \geq 0$) are going to have $nLvk \leq 1$
 
 2. **focusRegion = "periphery"**
 
@@ -247,6 +247,6 @@ definition:
 
 
 ```math
-    f(nLvk) = w_1 \cdot \exp\left( -rac{1}{2} \left( \frac{nLvk - 1}{\sigma} \right)^2 \right) - w_2 \cdot (nLvk - 1)^2
+    f(nLvk) = w_1 \cdot \exp\left( -\frac{1}{2} \left( \frac{nLvk - 1}{\sigma} \right)^2 \right) - w_2 \cdot (nLvk - 1)^2
 ```
 
