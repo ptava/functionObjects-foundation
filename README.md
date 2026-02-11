@@ -40,15 +40,13 @@ regions and coarsening outside them.
 
 Options are provided to enphasise different regions of the flow/vortices:
 
-1. **focusRegion = "core"**
+##### 1. **focusRegion = "core"**
 
 Focuses refinement targeting the core of turbulent eddies detected by Scale-Adaptive Simulation (SAS) models. It aims to refine the mesh where the "grid filter" ($c_2$) is larger than the "physical length scale" ($c_1$), indicating that the current mesh is too coarse to resolve the turbulent structures present.
 
 Available transfer functions:
 
-```
-a) **markCoreConstant**:
-```
+###### a) **markCoreConstant**:
 
 Apply constant value to all cells where $d = c2 - c1 > 0$
 
@@ -57,14 +55,12 @@ Apply constant value to all cells where $d = c2 - c1 > 0$
 ```
 
 
-```
-b) **markCoreOddScaler**:
-```
+###### b) **markCoreOddScaler**:
 
 Apply an odd, monotonic, sign-preserving function, symmetric around
 origin, normalised by its maximum value:
 
- <table align="center">
+<table align="center">
   <tr>
     <td align="center">
       <img src="imgs/tf_2.png" width="320" />
@@ -114,15 +110,29 @@ origin, normalised by its maximum value:
     <em>Example with $\sigma \eq 1$ and $w \eq 1$</em>
 </p>
 
-```
-c) **markCoreSafeScaler**:
-```
+###### c) **markCoreSafeScaler**:
 
 Based on the previously described odd transfer function (i.e. *oddScaler*) but with a safe control of the maximum value of the input field.
 
 This transfer function is designed to decrease the relevance of cells with large positive $d$ values. The reason is that, AMR might lead to numerical issues that propagates fast into the domain leading to an abrupt increase of cells with large positive $d$ values (not representative of the actual flow features). This transfer function is designed to mitigate this issue by applying a damping mechanism controlled by the parameter $\alpha$, which have a dual effect:
  - decreasing alpha shift the maximum value of the function to the left, towards $\overline{d} = 0$ (i.e., towards $d = -w \cdot d^{max}$);
  - decrease the function value at $d = d^{max}$
+
+<table align="center">
+  <tr>
+    <td align="center">
+      <img src="imgs/tf_sf0.png" width="320" />
+    </td>
+    <td align="center">
+      <img src="imgs/tf_sf1.png" width="320" />
+    </td>
+  </tr>
+  <tr>
+    <td align="center" colspan="2">
+      <em>Transfer function representation with changing $w$ (left) and $\sigma$ (right)</em>
+    </td>
+  </tr>
+</table>
 
 ```math
     f^{oddScaler}(d) = \overline{d} \cdot \left( 1 - \exp\left( -\frac{\overline{d}^2}{2 \sigma^2} \right) \right)
@@ -150,6 +160,17 @@ This transfer function is designed to decrease the relevance of cells with large
 > - the output function is normalised by its maximum value
 > - *t* defined as normalised coordinate $t = \frac{\overline{d}}{2*\sigma^2}$ and $t^\ast = \frac{\overline{d}_{max}}{2*\sigma^2}$ are used in the derivation of the damping coefficient to satisfy user's constraint $\alpha$
 
+<p align="center">
+    <img src="imgs/os_1_0p5.png" width="50%" height="50%">
+    <br>
+    <em>`oddScaler` function with $\sigma \eq 1$ and $w \eq 0.5$</em>
+</p>
+<p align="center">
+    <img src="imgs/sf_1_0p5_0p5.png" width="50%" height="50%">
+    <br>
+    <em>`safeScaler` with $\sigma \eq 1$, $w \eq 0.5$, and $\alpha = 0.5$</em>
+</p>
+
 > [!IMPORTANT]
 > The implementation is split into three parts: (a) utilities, (b) coefficients caching, and (c) field operation loop.
 > (a) utilities:
@@ -168,20 +189,21 @@ This transfer function is designed to decrease the relevance of cells with large
  > - retrieve coefficient from cache or calculate it if not available
  > - apply the transfer function to the field in a loop over all cells based on the effective Gaussian width (`sigmaStar`) and the damping coefficient (`kStar`)
 
+<p align="center">
+    <img src="imgs/tf_simulation.png" width="50%" height="50%">
+    <br>
+    <em> Applied `oddScaler` vs `safeScaler` with $\sigma \eq 1$ and $w \eq 0.5$</em>
+</p>
 
  > [!WARNING]
  > - not addressed crash testing with $w > 2$
 
-
-
-```
-d) **markCoreGaussSink**:
- ```
+###### d) **markCoreGaussSink**:
 
 Gaussian-like function peaking where nLvk = Lvk / c2 = 1, and decays for
 increasing values of nLvk:
 
- <table align="center">
+<table align="center">
   <tr>
     <td align="center">
       <img src="imgs/tf_0.png" width="320" />
@@ -230,16 +252,14 @@ increasing values of nLvk:
 > - $w$ controls values outside the focus region
 > - by construction, $L_{vk} = max(c_1, c_2)$ therefore all cells where $c_1 \leq c_2$ (i.e., $d \geq 0$) are going to have $nLvk \leq 1$
 
-2. **focusRegion = "periphery"**
+##### 2. **focusRegion = "periphery"**
 
 Focuses refinement in the periphery of vortex structures rather than
 their core.
 
 Available transfer functions:
 
-```
-e) **markPeripheryGaussSink**:
-```
+###### e) **markPeripheryGaussSink**:
 
 Gaussian-like function peaking at a user-defined reference value
 of Lvk (e.g., a free-stream value). Same as 'c' but different nLvk
