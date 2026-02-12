@@ -250,7 +250,7 @@ increasing values of nLvk:
 > [!NOTE]
 > - $w \geq 0$
 > - $w$ controls values outside the focus region
-> - by construction, $L_{vk} = max(c_1, c_2)$ therefore all cells where $c_1 \leq c_2$ (i.e., $d \geq 0$) are going to have $nLvk \leq 1$
+> - by construction, $L_{vk} = max(c_1, c_2)$ therefore all cells where $c_1 \leq c_2$ (i.e., $d \geq 0$) are going to have $nLvk eq 1$
 
 ##### 2. **focusRegion = "periphery"**
 
