@@ -200,7 +200,7 @@ sasRefineIndicator::sasRefineIndicator
 )
 :
     fvMeshFunctionObject(name, runTime, dict),
-    zone_(mesh(), dict),
+    zone_(dict.lookup("cellZone")),
     focusRegion_(focusRegion::core),
     transferFunction_(transferFunction::constant),
     sigma_(sigmaDefault),
@@ -303,7 +303,7 @@ sasRefineIndicator::optimizationCoeffs sasRefineIndicator::getOptimizationCoeffs
 
 tmp<volScalarField::Internal> sasRefineIndicator::markCoreBasic
 (
-    const labelList& cells,
+    const cellZone& cells,
     const volScalarField::Internal& c1,
     const volScalarField::Internal& c2
 ) const
@@ -329,7 +329,7 @@ tmp<volScalarField::Internal> sasRefineIndicator::markCoreBasic
 
 tmp<volScalarField::Internal> sasRefineIndicator::markCoreConstant
 (
-    const labelList& cells,
+    const cellZone& cells,
     const volScalarField::Internal& c1,
     const volScalarField::Internal& c2,
     const scalar weight
@@ -356,7 +356,7 @@ tmp<volScalarField::Internal> sasRefineIndicator::markCoreConstant
 
 tmp<volScalarField::Internal> sasRefineIndicator::markCoreOddScaler
 (
-    const labelList& cells,
+    const cellZone& cells,
     const volScalarField::Internal& c1,
     const volScalarField::Internal& c2,
     const scalar weight,
@@ -417,7 +417,7 @@ tmp<volScalarField::Internal> sasRefineIndicator::markCoreOddScaler
 tmp<volScalarField::Internal>
 sasRefineIndicator::markCoreSafeScaler
 (
-    const labelList& cells,
+    const cellZone& cells,
     const volScalarField::Internal& c1,
     const volScalarField::Internal& c2,
     const scalar weight,
@@ -456,9 +456,6 @@ sasRefineIndicator::markCoreSafeScaler
 
     if (dMax <= SMALL)
     {
-        DebugInfo
-            << " No positive values of d found (dMax=" << dMax << ")."
-            << endl;
         return tG;
     }
 
@@ -511,7 +508,7 @@ sasRefineIndicator::markCoreSafeScaler
 
 tmp<volScalarField::Internal> sasRefineIndicator::markCoreGaussSink
 (
-    const labelList& cells,
+    const cellZone& cells,
     const volScalarField::Internal& Lvk,
     const volScalarField::Internal& c2,
     const scalar weight,
@@ -546,7 +543,7 @@ tmp<volScalarField::Internal> sasRefineIndicator::markCoreGaussSink
 
 tmp<volScalarField::Internal> sasRefineIndicator::markPeripheryGaussSink
 (
-    const labelList& cells,
+    const cellZone& cells,
     const volScalarField::Internal& Lvk,
     const scalar LvkRef,
     const scalar weight,
@@ -582,9 +579,15 @@ tmp<volScalarField::Internal> sasRefineIndicator::markPeripheryGaussSink
 
 void sasRefineIndicator::calcIndicator()
 {
-    const labelList& cells = zone_.zone();
+    const cellZone& cells = mesh().cellZones()[zone_];
+
+    if (debug)
+    {
+        Pout<< "Cells in zone: " << cells.size() << endl;
+    }
 
     auto& fld = mesh_.lookupObjectRef<volScalarField>(resultName_);
+
     auto& fldI = fld.internalFieldRef();
 
     switch (focusRegion_)
@@ -675,7 +678,7 @@ void sasRefineIndicator::calcIndicator()
         DebugInfo
             << name() << " (" << resultName_ << "): found "
             << returnReduce(nPos, sumOp<label>()) << "/"
-            << zone_.nGlobalCells()
+            << cells.size()
             << " cells with indicator >= 0: " << endl;
     }
 }
@@ -751,7 +754,7 @@ bool sasRefineIndicator::read(const dictionary& dict)
             << "  weight2          : " << weight2_ << nl
             << "  alpha            : " << alpha_ << nl
             << "  result           : " << resultName_ << nl
-            << "  nCells           : " << zone_.nGlobalCells() << nl
+            << "  nCells           : " << mesh().cellZones()[zone_].size() << nl
             << endl;
     }
 
