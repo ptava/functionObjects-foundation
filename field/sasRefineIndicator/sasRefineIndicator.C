@@ -405,7 +405,11 @@ tmp<volScalarField::Internal> sasRefineIndicator::markCoreOddScaler
     //     G[i] = (u > 0.0) ? Gi/maxG : Gi;
     // }
     // Normalise by maximum value of G
-    G /= gMax(G);
+    const scalar maxG = gMax(G);
+    if (maxG > SMALL)
+    {
+        G /= maxG;
+    }
 
     return tG;
 }
@@ -463,8 +467,8 @@ sasRefineIndicator::markCoreSafeScaler
 
     // Calculate scaling factors
     const scalar shift = weight*dMax;
-    const scalar uMax  = (1.0 + weight)*dMax;
-    const scalar sigmaStar = uMax/sqrt(2.0*coeffs.tStar);
+    const scalar uMax  = max((1.0 + weight)*dMax, SMALL);
+    const scalar sigmaStar = uMax/max(sqrt(2.0*coeffs.tStar), SMALL);
     const scalar kStar     = coeffs.Khat/sqr(uMax);
     const scalar invTwoSigma2 = 0.5/sqr(sigmaStar);
 
@@ -495,7 +499,11 @@ sasRefineIndicator::markCoreSafeScaler
     //     G[i] = (u > 0.0) ? Gi/maxG : Gi;
     // }
     // Normalise by maximum value of G
-    G /= gMax(G);
+    const scalar maxG = gMax(G);
+    if (maxG > SMALL)
+    {
+        G /= maxG;
+    }
 
     return tG;
 }
