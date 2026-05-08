@@ -382,6 +382,9 @@ tmp<volScalarField::Internal> sasRefineIndicator::markCoreOddScaler
     }
     const scalar dMax = returnReduce(dMaxLocal, maxOp<scalar>());
 
+    DebugInfo
+        << "Calculated dMax = " << dMax << " for zone " << zone_ << nl;
+
     if (dMax <= SMALL)
     {
         return tG;
@@ -453,6 +456,9 @@ sasRefineIndicator::markCoreSafeScaler
         dMaxLocal = max(dMaxLocal, d[i]);
     }
     const scalar dMax = returnReduce(dMaxLocal, maxOp<scalar>());
+
+    DebugInfo
+        << "Calculated dMax = " << dMax << " for zone " << zone_ << nl;
 
     if (dMax <= SMALL)
     {
@@ -583,7 +589,9 @@ void sasRefineIndicator::calcIndicator()
 
     if (debug)
     {
-        Pout<< "Cells in zone: " << cells.size() << endl;
+        Pout
+            << "Cells in zone " << zone_ << ": "
+            << cells.size() << endl;
     }
 
     auto& fld = mesh_.lookupObjectRef<volScalarField>(resultName_);
@@ -678,7 +686,7 @@ void sasRefineIndicator::calcIndicator()
         DebugInfo
             << name() << " (" << resultName_ << "): found "
             << returnReduce(nPos, sumOp<label>()) << "/"
-            << cells.size()
+            << returnReduce(cells.size(), sumOp<label>())
             << " cells with indicator >= 0: " << endl;
     }
 }
